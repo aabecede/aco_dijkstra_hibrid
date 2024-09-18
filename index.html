@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulasi ACO</title>
+    <style>
+        #graph {
+            width: 800px;
+            height: 600px;
+            border: 1px solid #000;
+            margin-top: 20px;
+        }
+    </style>
+    <script src="https://unpkg.com/vis-network@8.5.6/dist/vis-network.min.js"></script>
+</head>
+
+<body>
+    <h1>Simulasi Algoritma Koloni Semut (ACO)</h1>
+    <form id="acoForm">
+        <label for="numAnts">Jumlah Semut:</label>
+        <input type="number" id="numAnts" name="numAnts" value="2" min="1" required>
+        <br><br>
+        <label for="numIterations">Jumlah Iterasi:</label>
+        <input type="number" id="numIterations" name="numIterations" value="2" min="1" required>
+        <br><br>
+        <label for="startNode">Node Awal:</label>
+        <input type="text" id="startNode" name="startNode" value="A" required>
+        <br><br>
+        <label for="endNode">Node Akhir:</label>
+        <input type="text" id="endNode" name="endNode" value="H" required>
+        <br><br>
+        <button type="submit">Mulai Simulasi</button>
+    </form>
+
+    <h2>Hasil Simulasi</h2>
+    <pre id="result"></pre>
+
+    <div id="graph"></div>
+
+    <script>
+        document.getElementById('acoForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            startSimulation();
+        });
+
+        function startSimulation() {
+            /*const formData = new FormData(document.getElementById('acoForm'));
+            const queryString = new URLSearchParams(formData).toString();*/
+            /*console.log(queryString)*/
+            const graph = {
+                'A': { 'B': 2, 'C': 2, 'D': 3 },
+                'B': { 'E': 4 },
+                'C': { 'B': 3, 'F': 2, 'D': 4 },
+                'D': { 'H': 7 },
+                'E': { 'F': 2, 'G': 3 },
+                'F': {},
+                'G': { 'H': 1 },
+                'H': {}
+            };
+
+            var numAnts = document.getElementById('numAnts').value
+            var numIterations = document.getElementById('numIterations').value
+            var startNode = document.getElementById('startNode').value
+            var endNode = document.getElementById('endNode').value
+            var pheromones = ACO.initializePheromones(graph)
+            console.log(numAnts,numIterations,startNode,endNode, pheromones)
+            
+            const bestDj = dijkstra(graph, startNode, endNode);
+            console.log('DJ',bestDj)
+
+            const bestAco = ACO.runACO(graph,pheromones, startNode, endNode, numAnts, numIterations)
+            console.log(bestAco)
+            //drawGraph(graph, bestAco.bestPath);
+            const newGraph = buildGraphFromHistory(bestAco?.antPaths, graph, endNode)
+            console.log('originGraph',graph)
+            console.log('newGraph',newGraph)
+            var hibridaPath = dijkstra(newGraph, startNode, endNode)
+            console.log('hibrida',hibridaPath)
+
+            drawGraph(graph, bestAco.bestPath, bestDj.path, hibridaPath?.path)
+        }
+
+        function buildGraphFromHistory(history, originalGraph, endNode) {
+            const newGraph = {};
+        
+            // Loop through the ACO history
+            history.forEach(paths => {
+                paths.forEach(path => {
+                    // Loop through each node in the path and create edges
+                    for (let i = 0; i < path.length - 1; i++) {
+                        const fromNode = path[i];
+                        const toNode = path[i + 1];
+        
+                        // Jika belum ada fromNode di graf baru, inisialisasi
+                        if (!newGraph[fromNode]) {
+                            newGraph[fromNode] = {};
+                        }
+        
+                        // Ambil bobot dari graf asli
+                        const originalWeight = originalGraph[fromNode]?.[toNode] || 0;
+        
+                        // Jika belum ada edge dari fromNode ke toNode, tetapkan bobot dari graf asli
+                        newGraph[fromNode][toNode] = originalWeight;
+                    }
+                });
+            });
+            
+            // Tambahkan endNode jika belum ada
+            if (!newGraph[endNode]) {
+                newGraph[endNode] = {};
+            }
+        
+            return newGraph;
+        }
+
+        function drawGraph(graphData, acoPath, dijkstraPath, hibridaPath) {
+            const nodes = new vis.DataSet(Object.keys(graphData).map(node => ({
+                id: node,
+                label: node
+            })));
+        
+            const edges = [];
+            Object.keys(graphData).forEach(node => {
+                Object.keys(graphData[node]).forEach(neighbor => {
+                    // Check if the edge belongs to the ACO or Dijkstra path
+                    const isInACOPath = acoPath?.includes(node) && acoPath?.includes(neighbor);
+                    const isInDijkstraPath = dijkstraPath?.includes(node) && dijkstraPath?.includes(neighbor);
+                    const isInHibridaPath = hibridaPath?.includes(node) && hibridaPath?.includes(neighbor);
+                    
+                    let color = '#848484'; // Default edge color
+        
+                    // Color the edge based on which algorithm's path it belongs to
+                    if (isInACOPath && isInDijkstraPath) {
+                        color = 'purple'; // Both ACO and Dijkstra share this edge
+                    } else if (isInACOPath) {
+                        color = 'red'; // ACO path
+                    } else if (isInDijkstraPath) {
+                        color = 'blue'; // Dijkstra path
+                    }
+        
+                    edges.push({
+                        from: node,
+                        to: neighbor,
+                        label: String(graphData[node][neighbor]),
+                        color: color
+                    });
+                });
+            });
+        
+            const container = document.getElementById('graph');
+            const data = {
+                nodes: nodes,
+                edges: edges
+            };
+            const options = {
+                physics: false
+            };
+        
+            new vis.Network(container, data, options);
+        }
+        
+
+        class ACO {
+            static initializePheromones(graph) {
+                const pheromones = {};
+                for (const node in graph) {
+                    for (const neighbor in graph[node]) {
+                        const edge = `${node}-${neighbor}`;
+                        pheromones[edge] = 1.0;
+                    }
+                }
+                return pheromones;
+            }
+
+            static runACO(graph, pheromones, startNode, endNode, numAnts, numIterations, alpha = 1.0, beta = 2.0, evaporationRate = 0.5) {
+                let bestPath = null;
+                let bestPathLength = Infinity;
+                const allAntPaths = [];
+
+                for (let iter = 0; iter < numIterations; iter++) {
+                    const iterationPaths = [];
+
+                    for (let ant = 0; ant < numAnts; ant++) {
+                        let path = [startNode];
+                        const visited = {
+                            [startNode]: true
+                        };
+                        let currentNode = startNode;
+
+                        while (currentNode !== endNode) {
+                            const nextNode = this.chooseNextNode(currentNode, graph, pheromones, visited, alpha, beta);
+                            if (nextNode === null) break; // If no available next node
+
+                            path.push(nextNode);
+                            visited[nextNode] = true;
+                            currentNode = nextNode;
+                        }
+
+                        const pathLength = this.calculatePathLength(path, graph);
+                        if (pathLength < bestPathLength && path[path.length - 1] === endNode) {
+                            bestPath = path;
+                            bestPathLength = pathLength;
+                        }
+
+                        iterationPaths.push(path);
+                    }
+
+                    allAntPaths.push(iterationPaths);
+                    this.updatePheromones(iterationPaths, pheromones, graph, bestPathLength, evaporationRate);
+                }
+
+                return {
+                    bestPath,
+                    bestPathLength,
+                    antPaths: allAntPaths
+                };
+            }
+
+            static chooseNextNode(currentNode, graph, pheromones, visited, alpha, beta) {
+                const neighbors = graph[currentNode];
+                let total = 0;
+                const probabilities = {};
+
+                for (const neighbor in neighbors) {
+                    if (!visited[neighbor]) {
+                        const edge = `${currentNode}-${neighbor}`;
+                        const tau = Math.pow(pheromones[edge], alpha);
+                        const eta = Math.pow(1 / neighbors[neighbor], beta);
+                        probabilities[neighbor] = tau * eta;
+                        total += probabilities[neighbor];
+                    }
+                }
+
+                if (total === 0) return null;
+
+                let rand = Math.random() * total;
+                for (const neighbor in probabilities) {
+                    rand -= probabilities[neighbor];
+                    if (rand <= 0) return neighbor;
+                }
+
+                return null;
+            }
+
+            static calculatePathLength(path, graph) {
+                let length = 0;
+                for (let i = 0; i < path.length - 1; i++) {
+                    length += graph[path[i]][path[i + 1]];
+                }
+                return length;
+            }
+
+            static updatePheromones(allPaths, pheromones, graph, bestPathLength, evaporationRate) {
+                // Evaporate pheromones
+                for (const edge in pheromones) {
+                    pheromones[edge] *= (1 - evaporationRate);
+                }
+
+                // Add new pheromones
+                for (const path of allPaths) {
+                    const pathLength = this.calculatePathLength(path, graph);
+                    const depositAmount = 1 / pathLength;
+                    for (let i = 0; i < path.length - 1; i++) {
+                        const edge = `${path[i]}-${path[i + 1]}`;
+                        pheromones[edge] += depositAmount;
+                    }
+                }
+            }
+
+        }
+
+        function dijkstra(graph, start, end) {
+            const distances = {};
+            const visited = {};
+            const previousNodes = {};
+            const queue = new PriorityQueue();
+            
+            // Inisialisasi semua jarak dari start ke node lainnya dengan Infinity
+            for (let node in graph) {
+                if (node === start) {
+                    distances[node] = 0; // Jarak dari start ke dirinya sendiri adalah 0
+                    queue.enqueue(node, 0); // Masukkan node start ke dalam queue
+                } else {
+                    distances[node] = Infinity; // Inisialisasi node lainnya dengan jarak tak terhingga
+                }
+                previousNodes[node] = null; // Belum ada node yang dilalui, jadi inisialisasi dengan null
+            }
+            console.log('previousNodes',previousNodes)
+            while (!queue.isEmpty()) {
+                const { value: currentNode } = queue.dequeue(); // Ambil node dengan prioritas tertinggi (jarak terkecil)
+        
+                // Jika node yang diproses adalah node tujuan (end), berhenti
+                if (currentNode === end) {
+                    break;
+                }
+        
+                // Jika node sudah dikunjungi, lanjutkan ke iterasi berikutnya
+                if (visited[currentNode]) continue;
+                visited[currentNode] = true;
+        
+                // Proses tetangga dari currentNode
+                for (let neighbor in graph[currentNode]) {
+                    let distance = graph[currentNode][neighbor];
+                    let newDistance = distances[currentNode] + distance;
+        
+                    // Jika jarak baru ke neighbor lebih kecil, perbarui jaraknya
+                    if (newDistance < distances[neighbor]) {
+                        distances[neighbor] = newDistance;
+                        previousNodes[neighbor] = currentNode;
+                        queue.enqueue(neighbor, newDistance); // Tambahkan ke queue dengan prioritas jarak
+                    }
+                }
+            }
+        
+            // Rekonstruksi jalur dari start ke end
+            let path = [];
+            let currentNode = end;
+            let index = 0
+            console.log('init current Node',currentNode)
+            while (currentNode !== null) {
+                path.unshift(currentNode);
+                currentNode = previousNodes[currentNode];
+                console.log(currentNode)
+                index++
+                if(index > 100){
+                    console.log(currentNode, path, previousNodes)
+                    break;
+                }
+            }
+        
+            // Jika node start tidak ada di jalur, berarti tidak ada jalur dari start ke end
+            if (path[0] !== start) {
+                return { distance: Infinity, path: [] };
+            }
+        
+            return { distance: distances[end], path };
+        }
+        
+        // Priority Queue dengan Min Heap
+        class PriorityQueue {
+            constructor() {
+                this.values = [];
+            }
+        
+            enqueue(value, priority) {
+                this.values.push({ value, priority });
+                this.sort();
+            }
+        
+            dequeue() {
+                return this.values.shift();
+            }
+        
+            isEmpty() {
+                return this.values.length === 0;
+            }
+        
+            sort() {
+                this.values.sort((a, b) => a.priority - b.priority);
+            }
+        }
+    </script>
+</body>
+
+</html>
